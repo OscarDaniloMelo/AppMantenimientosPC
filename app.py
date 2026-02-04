@@ -88,7 +88,7 @@ for tarea in tareas:
 st.session_state.memoria["observaciones"] = st.text_area("Notas Adicionales", value=st.session_state.memoria["observaciones"])
 
 # Generar Reporte
-if st.button("Finalizar Manteniiento y Crear PDF"):
+if st.button("Finalizar Mantenimiento y Crear PDF"):
     mem = st.session_state.memoria
     if not mem["fotos_antes"] or not mem["fotos_despues"]:
         st.error("Por Favor Sube Las Evidencias Antes De Finalizar")
@@ -121,32 +121,58 @@ if st.button("Finalizar Manteniiento y Crear PDF"):
             pdf.cell(0, 10, "Evidnecia Fotografica (Antes vs Despues)", ln=True, fill=True)
 
             # Validar Memoria Guardada
-            for tarea in mem["tareas_seleccionadas"]:
-                # Verificar existencias de fotos
+            ALTO_REQUERIDO = 82.0 
+            
+            for tarea in mem["tareas_seleccionadas"]:                
                 if tarea in mem["fotos_antes"] and tarea in mem["fotos_despues"]:
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 10, f"Componente: {tarea}", ln=True)
+                    
+                    # --- LÓGICA DE SALTO DE PÁGINA ---
+                    if pdf.get_y() + ALTO_REQUERIDO > 270:
+                        pdf.add_page()
 
-                # Guardar temporalmente archivos
-                temp_a = f"temp_a_{tarea.replace('/', '_')}.jpg"    
-                temp_d = f"temp_d_{tarea.replace('/', '_')}.jpg"
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.cell(0, 10, f"{tarea}: ", ln=True)
 
-                for origen, destino in [(mem["fotos_antes"][tarea], temp_a), (mem["fotos_despues"][tarea], temp_d)]:
-                    img = Image.open(io.BytesIO(origen))
-                    if img.mode in ("RGBA", "P"):
-                        img =img.convert("RGB")
-                    img.save(destino, "JPEG")
+                    y_etiquetas = pdf.get_y() 
+                    y_marcos = y_etiquetas + 5 
 
-                # Insertar Imagenes
-                y_pos = pdf.get_y()
-                pdf.image(temp_a, x=10, y=y_pos, w=90)    
-                pdf.image(temp_d, x=105, y=y_pos, w=90)
+                    pos_x = [10, 110]
+                    fotos_data = [mem["fotos_antes"][tarea], mem["fotos_despues"][tarea]]
+                    etiquetas = ["ANTES", "DESPUÉS"]
 
-                pdf.ln(70)
+                    for i in range(2):
+                        pdf.set_font("Arial", 'B', 9)
+                        pdf.set_text_color(50, 50, 50)
+                        pdf.set_xy(pos_x[i], y_etiquetas)
+                        pdf.cell(90, 5, etiquetas[i], align='C', ln=False)
+                        
+                        # --- PROCESAR E INSERTAR IMAGEN ---
+                        img = Image.open(io.BytesIO(fotos_data[i]))
+                        if img.height > img.width:
+                            img = img.rotate(90, expand=True)
 
-                # Borrar archivos temporales
-                os.remove(temp_a)
-                os.remove(temp_d)
+                        # Dibujar el marco gris
+                        pdf.set_draw_color(180, 180, 180)
+                        pdf.rect(pos_x[i], y_marcos, 90, 60)
+
+                        # Cálculo de escalado
+                        ancho_orig, alto_orig = img.size
+                        ratio = min(90 / ancho_orig, 60 / alto_orig)
+                        w_f, h_f = ancho_orig * ratio, alto_orig * ratio
+
+                        # Centrado
+                        off_x = (90 - w_f) / 2
+                        off_y = (60 - h_f) / 2
+
+                        temp_path = f"temp_{i}_{tarea.replace('/', '_')}.jpg"
+                        if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+                        img.save(temp_path, "JPEG", quality=80)
+
+                        pdf.image(temp_path, x=pos_x[i] + off_x, y=y_marcos + off_y, w=w_f, h=h_f)
+                        os.remove(temp_path)
+
+                    pdf.set_y(y_marcos + 65)
 
             if st.session_state.memoria["observaciones"]:
                 pdf.ln(5)
