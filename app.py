@@ -34,16 +34,34 @@ def cargar_datos():
 
 df_equipos=cargar_datos()
 
+query_params = st.query_params
+empresa_url = query_params.get("empresa")
+if empresa_url:
+    sede_buscada = empresa_url[0] if isinstance(empresa_url, list) else empresa_url
+    sede_buscada = str(sede_buscada).strip()
+    df_filtrado = df_equipos[df_equipos['empresa'].str.lower() == sede_buscada.lower()]
+
+    if not df_filtrado.empty:
+        st.success(f"Filtrado por: {sede_buscada.upper()}")
+        df_final = df_filtrado
+        
+    else:
+        st.warning(f"No se encontraron equipos para la empresa: {sede_buscada}. Se mostrarán todos.")
+        df_final = df_equipos
+else:
+    df_final = df_equipos
+
 st.title("Mantenimientos")
 
-# seleccion de equipo
+if df_final.empty:
+    st.error("No hay equipos disponibles para mostrar.")
+    st.stop() # Detiene la ejecución si no hay datos
 
-st.subheader ("Identificacion del Equipo")
-placa_input = st.selectbox("Selecione la Placa o ID del Equipo", df_equipos['placa'])
+# IMPORTANTE: Usamos df_final['placa'] para que el selectbox solo muestre los equipos filtrados
+placa_input = st.selectbox("Seleccione la Placa o ID del Equipo", df_final['placa'])
 
-# traer datos automaticamente
-
-info = df_equipos[df_equipos['placa'] == placa_input].iloc[0]
+# Traer datos automáticamente basados en la selección
+info = df_final[df_final['placa'] == placa_input].iloc[0]
 col_a, col_b, = st.columns(2)
 with col_a:
     st.info(f"**Usuario:** {info['usuario']}")
@@ -94,15 +112,24 @@ if st.button("Finalizar Mantenimiento y Crear PDF"):
         st.error("Por Favor Sube Las Evidencias Antes De Finalizar")
     else:
         try:
+            def agregar_pagina_con_fondo(pdf_obj):
+                pdf_obj.add_page()
+                try:
+                    pdf_obj.image("plantilla_fondo.jpg", x=0, y=0, w=210, h=297) 
+                except:
+                    st.warning("No se encontró la imagen 'plantilla_fondo.jpg', el PDF saldrá blanco.")
+
             pdf = FPDF ()
-            pdf.add_page()
-            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.set_auto_page_break(auto=False)
+            agregar_pagina_con_fondo(pdf)
 
             # Encabezado
-            pdf.set_font('Arial', 'B', 16)
-            pdf.cell(0, 10, f"Reporte De Mantenimiento: {info['empresa']}", ln=True, align='C')
+            pdf.set_y(50)
             pdf.set_font("Arial", size=10)
             pdf.cell(0, 10, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='R')
+            pdf.set_font('Arial', 'B', 16)
+            pdf.cell(0, 10, f"Reporte De Mantenimiento: ", ln=True, align='C')
+            pdf.cell(0, 10, f"{info['empresa']}", ln=True, align='C')
             pdf.ln(5)
 
             # Datos del Equipo
@@ -118,7 +145,7 @@ if st.button("Finalizar Mantenimiento y Crear PDF"):
             # Evidencia Fotografica
             pdf.set_fill_color(230, 230, 230)
             pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 10, "Evidnecia Fotografica (Antes vs Despues)", ln=True, fill=True)
+            pdf.cell(0, 10, "Evidencia Fotografica (Antes vs Despues)", ln=True, fill=True)
 
             # Validar Memoria Guardada
             ALTO_REQUERIDO = 82.0 
@@ -128,7 +155,8 @@ if st.button("Finalizar Mantenimiento y Crear PDF"):
                     
                     # --- LÓGICA DE SALTO DE PÁGINA ---
                     if pdf.get_y() + ALTO_REQUERIDO > 270:
-                        pdf.add_page()
+                        agregar_pagina_con_fondo(pdf)
+                        pdf.set_y(50)
 
                     pdf.set_font("Arial", 'B', 12)
                     pdf.set_text_color(0, 0, 0)
