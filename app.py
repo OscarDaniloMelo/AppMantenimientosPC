@@ -5,6 +5,8 @@ from datetime import datetime
 from PIL import Image
 import os
 import io
+from streamlit_drawable_canvas import st_canvas
+import numpy as np
 
 # CONFIGURACION Y CARGA DE DATOS
 
@@ -27,7 +29,8 @@ def cargar_datos():
         'placa': ['ABC-001', 'ABC-002', 'XYZ-999'],
         'hostname': ['WS-SERV-01', 'WS-SERV-02', 'LAPTOP-10'],
         'usuario': ['Juan Pérez', 'Ana García', 'Carlos Ruiz'],
-        'empresa': ['Empresa A', 'Empresa A', 'Empresa B']
+        'empresa': ['Empresa A', 'Empresa A', 'Empresa B'],
+        'modelo': ['Dell OptiPlex 3080', 'HP ProDesk 400', 'Lenovo ThinkPad E14']
     }
 
     return pd.DataFrame(data)
@@ -59,14 +62,15 @@ if df_final.empty:
 
 # IMPORTANTE: Usamos df_final['placa'] para que el selectbox solo muestre los equipos filtrados
 placa_input = st.selectbox("Seleccione la Placa o ID del Equipo", df_final['placa'])
-
 # Traer datos automáticamente basados en la selección
 info = df_final[df_final['placa'] == placa_input].iloc[0]
+
 col_a, col_b, = st.columns(2)
 with col_a:
     st.info(f"**Usuario:** {info['usuario']}")
     st.info(f"**Hostname:** {info['hostname']}")
 with col_b:
+    st.info(f"**Modelo:** {info['modelo']}")
     st.info(f"**Empresa:** {info['empresa']}")
 
 st.divider()
@@ -75,7 +79,7 @@ st.divider()
 
 st.subheader ("Tareas del Mantenimiento")
 st.write("¿Que Componentes vas a Limpiar?")
-opciones = ["Chasis/Torre", "Pantalla", "Tecaldo", "Mouse"]
+opciones = ["Chasis/Torre", "Pantalla", "Teclado", "Mouse"]
 tareas= []
 for opcion in opciones:
     check = st.checkbox(opcion, value=opcion in st.session_state.memoria["tareas_seleccionadas"])
@@ -103,7 +107,56 @@ for tarea in tareas:
         if tarea in st.session_state.memoria["fotos_despues"]:
             st.image(st.session_state.memoria["fotos_despues"][tarea], caption=f"Imagen {tarea} Despues", width=300)
 
+# Validaciones Tecnicas
+st.subheader("Validaciones Técnicas")
+col_c1, col_c2 = st.columns(2)
+with col_c1:
+    soplado = st.checkbox("Soplado Interno (Limpieza de polvo)")
+    pasta = st.checkbox("Aplicación de Pasta Térmica")
+with col_c2:
+    ventiladores = st.checkbox("Validación de Ventiladores/Coolers")
+    estado_disco = st.selectbox("Estado del Disco Duro", ["Óptimo", "En Observación", "Crítico / Requiere Cambio"])
+
+st.divider()
+
+# Observaciones
 st.session_state.memoria["observaciones"] = st.text_area("Notas Adicionales", value=st.session_state.memoria["observaciones"])
+
+st.divider()
+
+# RESPONSABLES Y FIRMA
+st.subheader("Finalización")
+col_f1, col_f2 = st.columns(2)
+with col_f1:
+    st.write("**Firma del Técnico:**")
+    # El canvas crea un recuadro de dibujo
+    firma_tecnico_canvas = st_canvas(
+        fill_color="rgba(255, 165, 0, 0.3)",  # Color de relleno (no se usa para firmas)
+        stroke_width=2,                       # Grosor del lápiz
+        stroke_color="#000000",               # Color negro
+        background_color="#FFFFFF",           # Fondo blanco
+        height=150,                           # Alto del recuadro
+        width=300,                            # Ancho del recuadro
+        drawing_mode="freedraw",              # Modo dibujo libre
+        key="canvas_tecnico",
+    )
+    tecnico = st.text_input("Técnico que realiza el mantenimiento", placeholder="Nombre del técnico")
+
+with col_f2:
+    st.write("**Firma del Usuario (Aceptación):**")
+    firma_usuario_canvas = st_canvas(
+        fill_color="rgba(255, 165, 0, 0.3)",
+        stroke_width=2,
+        stroke_color="#000000",
+        background_color="#FFFFFF",
+        height=150,
+        width=300,
+        drawing_mode="freedraw",
+        key="canvas_usuario",
+    )
+    confirmacion_usuario = st.text_input("Aceptación del Usuario", placeholder="Nombre de quien recibe")
+
+st.divider()
 
 # Generar Reporte
 if st.button("Finalizar Mantenimiento y Crear PDF"):
@@ -138,9 +191,42 @@ if st.button("Finalizar Mantenimiento y Crear PDF"):
             pdf.set_font("Arial", "B", 12)
             pdf.cell(0, 10, "Datos Del Equipo", ln=True, fill=True)
             pdf.set_font("Arial", size=11)
-            pdf.cell(0, 8, f"Usuario: {info['usuario']}", ln=True)
-            pdf.cell(0, 8, f"Placa/ID: {info['placa']} | Hostname: {info['hostname']}", ln=True)
-            pdf.ln(5)
+            ancho_col = 95
+            pdf.cell(ancho_col, 8, f"Usuario: {info['usuario']}", ln=0, border=0) # ln=0 -> Se queda en la linea
+            pdf.cell(ancho_col, 8, f"Hostname: {info['hostname']}", ln=1, border=0) # ln=1 -> Salta linea
+            pdf.cell(ancho_col, 8, f"Placa/ID: {info['placa']}", ln=0, border=0)
+            pdf.cell(ancho_col, 8, f"Modelo: {info.get('modelo', 'Genérico')}", ln=1, border=0)
+            pdf.ln(2)
+
+            # Validacion Componentes Intervenidos
+            pdf.set_fill_color(230, 230, 230)
+            pdf.set_font("Arial", "B", 12)
+            pdf.cell(0, 10, "Alcance del Mantenimiento (Limpieza)", ln=True, fill=True)
+            pdf.set_font("Arial", size=11)
+            
+            # Creamos una cadena de texto con los componentes seleccionados
+            if mem["tareas_seleccionadas"]:
+                componentes_limpios = ", ".join(mem["tareas_seleccionadas"])
+                pdf.multi_cell(0, 8, f"{componentes_limpios}.")
+            else:
+                pdf.cell(0, 8, "No se seleccionaron componentes específicos.", ln=True)
+            pdf.ln(2)
+
+            # Bloque de Validaciones Técnicas
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_font("Arial", 'B', 11)
+            pdf.cell(0, 10, "Validaciones Tecnicas Realizadas", ln=True, fill=True)
+
+            pdf.set_font("Arial", size=10)
+            # Mostramos los resultados de los checks
+            res_soplado = "SÍ" if soplado else "NO"
+            res_pasta = "SÍ" if pasta else "NO"
+            res_vent = "SÍ" if ventiladores else "NO"
+
+            pdf.cell(0, 8, f"Soplado Interno: {res_soplado} | Pasta Térmica: {res_pasta} | Validacion Ventiladores: {res_vent}", ln=True)
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(0, 8, f"Diagnóstico del Disco: {estado_disco.upper()}", ln=True)
+            pdf.ln(2)
 
             # Evidencia Fotografica
             pdf.set_fill_color(230, 230, 230)
@@ -203,11 +289,64 @@ if st.button("Finalizar Mantenimiento y Crear PDF"):
                     pdf.set_y(y_marcos + 65)
 
             if st.session_state.memoria["observaciones"]:
+                if pdf.get_y() + 50 > 270:
+                        agregar_pagina_con_fondo(pdf)
+                        pdf.set_y(50)
                 pdf.ln(5)
                 pdf.set_font("Arial", "B", 11)
                 pdf.cell(0, 10, "Notas Adicionales", ln=True)
                 pdf.set_font("Arial", size=10)
                 pdf.multi_cell(0, 8, st.session_state.memoria["observaciones"])
+
+            if pdf.get_y() + 50 > 270:
+                agregar_pagina_con_fondo(pdf)
+                pdf.set_y(50)
+            else:
+                pdf.ln(10)
+
+            y_firmas = pdf.get_y()
+            
+            # Títulos de las firmas
+            pdf.set_font("Arial", 'B', 10)
+            pdf.set_xy(10, y_firmas)
+            pdf.cell(90, 5, "Firma del Técnico:", ln=0, align='L')
+            
+            pdf.set_xy(110, y_firmas)
+            pdf.cell(90, 5, "Firma del Usuario:", ln=1, align='L')
+            
+            # --- PROCESAR FIRMA TÉCNICO ---
+            if firma_tecnico_canvas.image_data is not None:
+                # Convertir matriz numpy a imagen PIL
+                img_tec = Image.fromarray(firma_tecnico_canvas.image_data.astype('uint8'), 'RGBA')
+                # Convertir a RGB (Fondo blanco) para que FPDF no falle
+                background = Image.new("RGB", img_tec.size, (255, 255, 255))
+                background.paste(img_tec, mask=img_tec.split()[3]) # Usar canal alpha como máscara
+                
+                background.save("temp_firma_tec.jpg", "JPEG")
+                pdf.image("temp_firma_tec.jpg", x=10, y=y_firmas + 5, w=60, h=30)
+                os.remove("temp_firma_tec.jpg")
+            
+            # --- PROCESAR FIRMA USUARIO ---
+            if firma_usuario_canvas.image_data is not None:
+                img_user = Image.fromarray(firma_usuario_canvas.image_data.astype('uint8'), 'RGBA')
+                background = Image.new("RGB", img_user.size, (255, 255, 255))
+                background.paste(img_user, mask=img_user.split()[3])
+                
+                background.save("temp_firma_user.jpg", "JPEG")
+                pdf.image("temp_firma_user.jpg", x=110, y=y_firmas + 5, w=60, h=30)
+                os.remove("temp_firma_user.jpg")
+
+            # Líneas y Nombres debajo de la firma
+            pdf.set_y(y_firmas + 35) # Bajamos después de la imagen
+            pdf.set_font("Arial", size=9)
+            
+            pdf.cell(95, 5, "__________________________", ln=0, align='L')
+            pdf.set_xy(110, pdf.get_y())
+            pdf.cell(95, 5, "__________________________", ln=1, align='L')
+            
+            pdf.cell(95, 5, f"Nombre: {tecnico}", ln=0, align='L')
+            pdf.set_xy(110, pdf.get_y())
+            pdf.cell(95, 5, f"Nombre: {confirmacion_usuario}", ln=1, align='L')
 
             # Generar Descarga
             pdf_bytes = pdf.output(dest="S").encode("latin-1")
